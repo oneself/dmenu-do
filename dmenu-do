@@ -18,31 +18,86 @@ import sys
 import os
 from subprocess import Popen, PIPE
 from optparse import OptionParser
+from collections import defaultdict
 
 #############
 # CONSTANTS #
 #############
 
 ## dmenu command
-DMENU=['dmenu', '-i', '-b', '-fn', 'Consolas-10:bold', '-nf', 'grey', '-sb', '#444', '-sf', '#EE9A00']
+DMENU = ['dmenu', '-i', '-b', '-fn', 'Consolas-10:bold', '-nf', 'grey', '-sb', '#444', '-sf', '#EE9A00']
 ## List of folders to search, NOTE: must use full path!
-FOLDERS=['~', '/', '~/downloads', '~/notes', '/space', '~/documents']
+FOLDERS = ['~', '/', '~/downloads', '~/notes', '/space', '~/documents']
 ## List of session commands.  NOTE: You should add this to /etc/sudoers to avoid having to put in a
 ## password every time.
-SESSION= {'shutdown':  'sudo shutdown -h now',
-          'reboot':    'sudo shutdown -r now',
-          'suspend':   'sudo pm-suspend',
-          'hibernate': 'sudo pm-hibernate'}
+SESSION = {'shutdown':  'sudo shutdown -h now',
+           'reboot':    'sudo shutdown -r now',
+           'suspend':   'sudo pm-suspend',
+           'hibernate': 'sudo pm-hibernate'}
+## File used to store command history info.  Commands are stored in order, most recently used first.
+HISTORY = os.path.join(os.environ['HOME']), ".dmenu-do.history")
 
-###
-# Execute command
-def execute(command):
+class LRUDict(object):
+  '''An OrderedDict allows a user to add key/value pairs, like a dict, but maintains the order of
+  addition.  If an item is added more the once, it will move to the end of the list.  So, the order
+  is LRU first.  (Note: this implementation is not thread-safe)
+  '''
+
+  def __init__(self):
+    '''Create an empty dict'''
+    self._d = {}
+    self._k = []
+
+  def __getitem__(self, key):
+    '''Get value'''
+    return self._d[key]
+
+  def __setitem__(self, key, value):
+    '''Set value'''
+    self._k.append(key)
+    self._d[key] = value
+
+  def __delitem__(self, key):
+    '''Remove item'''
+    self._k.remove(key)
+    del self._d[key]
+
+  def keys(self):
+    '''Return list of keys in order of insertion'''
+    self._dedup()
+    return self._k
+
+  def items(self):
+    '''Return items as a list of (key, value) tuples'''
+    self._dedup()
+    items = []
+    for k in self._k:
+      items.append((k, self._d[k]))
+    return items
+
+  def _dedup(self):
+    '''Remove all key duplicates'''
+    # Count the number of duplicates
+    dups = defaultdict(int)
+    for k in self._k:
+      dups[k] += 1
+    ks = []
+    for k in self._k:
+      dups[k] =- 1
+      if dups[k] == 0:
+        ks.append(k)
+    self._k = ks
+
+def execute(name, command):
+  '''Execute command'''
   if VERBOSE: print '$', command
+  history = history_read()
+  history[name] = command
+  history_write(history)
   os.popen(command)
 
-###
-# Get list of executables based on $PATH
 def executables():
+  '''Get list of executables based on $PATH'''
   path = os.environ['PATH'].split(':')
   proc = Popen(['lsx-suckless'] + path, stdout=PIPE)
   lines = []
@@ -52,66 +107,84 @@ def executables():
     line = proc.stdout.readline()
   return lines
 
-###
-# Get list of search folders
+def history_write(history):
+  with file(HISTORY, 'w+') as writer:
+    for (k, v) in history.items():
+      writer.write('%s,%s\n' % (k, v))
+
+def history_read():
+  history = LRUDict()
+  try:
+    with file(HISTORY, 'r') as reader:
+      for line in reader:
+        (k, v) = line.split(',')
+        history[k] = v
+  except IOError:
+    pass # file not found, this is fine, we'll just created it later.
+  return history
+
 def folders():
+  '''Get list of search folders'''
   return FOLDERS
 
-###
-# Get session commands
 def session():
+  '''Get session commands'''
   return SESSION
 
-###
-# Is this path an executable file
 def is_executable(path):
+  '''Is this path an executable file'''
   return os.path.isfile(path) and os.access(path, os.X_OK)
 
-###
-# Is this path a directory
 def is_directory(path):
+  '''Is this path a directory'''
   return os.path.isdir(path)
 
-###
-# Run the dmenu command recursively
+
 def dmenu(command=''):
+  '''Run the dmenu command recursively'''
   global current
   items = []
   # Figure out which items to display
   if command:
-    # If the command is in the path, execute it
+    # If current is empty, we are not walking a directory tree.  So, try and see if this is a
+    # session command or a path executable.
     if not current:
+      if command in history_read().keys():
+        if VERBOSE: print 'HISTORY:', command
+        # This is a history command, so run it.
+        execute(command, history_read()[command])
+        return
       if command in session().keys():
         if VERBOSE: print 'SESSION:', command
         # This is a session command, so run it.
-        execute(session()[command])
+        execute(command, session()[command])
         return
       if command in executables():
         if VERBOSE: print 'EXECUTABLE:', command
         # This is an executable, so run it.
-        execute(command)
+        execute(command, command)
         return
     # Otherwise, we must be walking a path, so join our current path
-    command = os.path.join(current, command.replace('~', os.environ['HOME']))
+    path = os.path.join(current, command.replace('~', os.environ['HOME']))
     if is_directory(command):
         if VERBOSE: print 'DIRECTORY:', command
         # Update current path
-        current = command
+        current = path
         # This is a directory, so we are going to list all child files and folders.
-        items = os.listdir(command)
+        items = os.listdir(path)
     elif is_executable(command):
       # This is a full path executable, so run it.
       if VERBOSE: print 'EXECUTABLE:', command
-      execute(command)
+      execute(command, path)
       return
     else:
       # This is just a file, use mailcap and try to find the right program to run it.
-      if VERBOSE: print 'FILE:', command
-      execute('see "%s"' % command)
+      if VERBOSE: print 'FILE:', path
+      execute(command, 'see "%s"' % path)
       return
   else:
     # If no command was passed in, show everything
-    items = sorted(set(folders() + executables() + list(session().keys())))
+    items = history_read().keys() + sorted(set(folders() + executables() + list(session().keys())))
   # Open the dmenu command
   proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
   # Run dmenu with the items defined above
@@ -128,6 +201,7 @@ def dmenu(command=''):
 ########
 
 def main():
+  '''main method'''
   global current
   current = ''
   dmenu()
