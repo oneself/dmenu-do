@@ -1,0 +1,144 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2012 Eyal Erez
+
+# This program is free software; you can redistribute it and/or modify it under the terms of the GNU
+# General Public License as published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+# even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program; if not,
+# write to the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+import sys
+import os
+from subprocess import Popen, PIPE
+from optparse import OptionParser
+
+#############
+# CONSTANTS #
+#############
+
+## dmenu command
+DMENU=['dmenu', '-i', '-b', '-fn', 'Consolas-10:bold', '-nf', 'grey', '-sb', '#444', '-sf', '#EE9A00']
+## List of folders to search, NOTE: must use full path!
+FOLDERS=['~', '/', '~/downloads', '~/notes', '/space', '~/documents']
+## List of session commands.  NOTE: You should add this to /etc/sudoers to avoid having to put in a
+## password every time.
+SESSION= {'shutdown':  'sudo shutdown -h now',
+          'reboot':    'sudo shutdown -r now',
+          'suspend':   'sudo pm-suspend',
+          'hibernate': 'sudo pm-hibernate'}
+
+###
+# Execute command
+def execute(command):
+  if VERBOSE: print '$', command
+  os.popen(command)
+
+###
+# Get list of executables based on $PATH
+def executables():
+  path = os.environ['PATH'].split(':')
+  proc = Popen(['lsx-suckless'] + path, stdout=PIPE)
+  lines = []
+  line = proc.stdout.readline()
+  while line:
+    lines.append(line.strip())
+    line = proc.stdout.readline()
+  return lines
+
+###
+# Get list of search folders
+def folders():
+  return FOLDERS
+
+###
+# Get session commands
+def session():
+  return SESSION
+
+###
+# Is this path an executable file
+def is_executable(path):
+  return os.path.isfile(path) and os.access(path, os.X_OK)
+
+###
+# Is this path a directory
+def is_directory(path):
+  return os.path.isdir(path)
+
+###
+# Run the dmenu command recursively
+def dmenu(command=''):
+  global current
+  items = []
+  # Figure out which items to display
+  if command:
+    # If the command is in the path, execute it
+    if not current:
+      if command in session().keys():
+        if VERBOSE: print 'SESSION:', command
+        # This is a session command, so run it.
+        execute(session()[command])
+        return
+      if command in executables():
+        if VERBOSE: print 'EXECUTABLE:', command
+        # This is an executable, so run it.
+        execute(command)
+        return
+    # Otherwise, we must be walking a path, so join our current path
+    command = os.path.join(current, command.replace('~', os.environ['HOME']))
+    if is_directory(command):
+        if VERBOSE: print 'DIRECTORY:', command
+        # Update current path
+        current = command
+        # This is a directory, so we are going to list all child files and folders.
+        items = os.listdir(command)
+    elif is_executable(command):
+      # This is a full path executable, so run it.
+      if VERBOSE: print 'EXECUTABLE:', command
+      execute(command)
+      return
+    else:
+      # This is just a file, use mailcap and try to find the right program to run it.
+      if VERBOSE: print 'FILE:', command
+      execute('see "%s"' % command)
+      return
+  else:
+    # If no command was passed in, show everything
+    items = sorted(set(folders() + executables() + list(session().keys())))
+  # Open the dmenu command
+  proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
+  # Run dmenu with the items defined above
+  for item in items:
+    proc.stdin.write(item)
+    proc.stdin.write('\n')
+  command = proc.communicate()[0]
+  # If we got something back, run dmenu again
+  if command:
+    dmenu(command.strip())
+
+########
+# MAIN #
+########
+
+def main():
+  global current
+  current = ''
+  dmenu()
+
+if __name__ == '__main__':
+  parser = OptionParser()
+  parser.add_option("-v", "--verbose",
+                    action="store_true", dest="verbose", default=False,
+                    help="print out more information")
+
+  (options, args) = parser.parse_args()
+
+  VERBOSE = options.verbose
+  main()
