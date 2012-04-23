@@ -10,19 +10,22 @@ run an associated program.
 Installation
 ============
 
-To run this you should install Python (duh) and you should install and configure mailcap.
-You should also edit the DMENU constant bellow to change font, colors, etc.
-You should also edit FOLDERS and put in your own set of folders to search.
+To run this you should install Python (duh) and you should install and configure
+mailcap.  You should also edit the DMENU constant at the top of the "dmenu-do"
+source file to change how dmenu is called and control font, colors, etc.  You
+should also edit the FOLDERS constant and put in your own set of folders to
+search.
 
 Usage
 =====
 
-Once you run dmenu-do, you will get a list of all executables from your PATH, and the list of
-FOLDERS.  If you hit ENTER on an executable (e.g. "firefox" or "emacs"), it will just execute.  If
-you hit ENTER on a directory, dmenu will display the items (files and folders) within that
-directory.  If you hit ENTER on a directory again, items in that directory will show, etc.  If you
-hit ENTER on a file that is not an executable, dmenu-do will call mailcap's "see" on the file, and
-whatever program you have configure to run it will be launched.
+Once you run dmenu-do, you will get a list of all executables from your PATH,
+and the list of FOLDERS.  If you hit ENTER on an executable (e.g. "firefox" or
+"emacs"), it will just execute.  If you hit ENTER on a directory, dmenu will
+display the items (files and folders) within that directory.  If you hit ENTER
+on a directory again, items in that directory will show, etc.  If you hit ENTER
+on a file that is not an executable, dmenu-do will call mailcap's "see" on the
+file, and whatever program you have configure to run it will be launched.
 
 TODO
 ====
