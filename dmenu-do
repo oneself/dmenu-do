@@ -35,7 +35,7 @@ SESSION = {'shutdown':  'sudo shutdown -h now',
            'suspend':   'sudo pm-suspend',
            'hibernate': 'sudo pm-hibernate'}
 ## File used to store command history info.  Commands are stored in order, most recently used first.
-HISTORY = os.path.join(os.environ['HOME']), ".dmenu-do.history")
+HISTORY = os.path.join(os.environ['HOME'], ".dmenu-do.history")
 
 class LRUDict(object):
   '''An OrderedDict allows a user to add key/value pairs, like a dict, but maintains the order of
@@ -83,7 +83,7 @@ class LRUDict(object):
       dups[k] += 1
     ks = []
     for k in self._k:
-      dups[k] =- 1
+      dups[k] -= 1
       if dups[k] == 0:
         ks.append(k)
     self._k = ks
@@ -91,10 +91,8 @@ class LRUDict(object):
 def execute(name, command):
   '''Execute command'''
   if VERBOSE: print '$', command
-  history = history_read()
-  history[name] = command
-  history_write(history)
-  os.popen(command)
+  history_add(name, command)
+  os.popen(command + '&')
 
 def executables():
   '''Get list of executables based on $PATH'''
@@ -107,20 +105,38 @@ def executables():
     line = proc.stdout.readline()
   return lines
 
+def history_add(name, command):
+  history = history_read()
+  history[name] = command
+  history_write(history)
+
 def history_write(history):
+  if VERBOSE: print 'WRITE HISTORY'
   with file(HISTORY, 'w+') as writer:
     for (k, v) in history.items():
-      writer.write('%s,%s\n' % (k, v))
+      if k and v:
+        if VERBOSE: print '%s,%s\n' % (k, v)
+        writer.write('%s,%s\n' % (k, v))
+  print 'DONE'
 
+history = None
 def history_read():
+  global history
+  if history:
+    return history
+  if VERBOSE: print 'READ HISTORY'
   history = LRUDict()
   try:
     with file(HISTORY, 'r') as reader:
       for line in reader:
-        (k, v) = line.split(',')
-        history[k] = v
+        line = line.strip()
+        if line:
+          (k, v) = line.split(',')
+          if VERBOSE: print '%s,%s\n' % (k, v)
+          history[k] = v
   except IOError:
     pass # file not found, this is fine, we'll just created it later.
+  print 'DONE'
   return history
 
 def folders():
@@ -166,7 +182,7 @@ def dmenu(command=''):
         return
     # Otherwise, we must be walking a path, so join our current path
     path = os.path.join(current, command.replace('~', os.environ['HOME']))
-    if is_directory(command):
+    if is_directory(path):
         if VERBOSE: print 'DIRECTORY:', command
         # Update current path
         current = path
@@ -184,7 +200,7 @@ def dmenu(command=''):
       return
   else:
     # If no command was passed in, show everything
-    items = history_read().keys() + sorted(set(folders() + executables() + list(session().keys())))
+    items = history_read().keys() + folders() + list(session().keys()) + sorted(executables())
   # Open the dmenu command
   proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
   # Run dmenu with the items defined above
