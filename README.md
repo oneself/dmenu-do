@@ -1,37 +1,13 @@
 Introduction
 ============
-
 "dmenu-do" is a thin wrapper around dmenu which makes it act a little more like
-gnome-do.  Specifically, it allows the user to traverse a set of directories and
-find files stored in them.  It then either executes the file, or uses mailcap to
+gnome-do. Specifically, it allows the user to traverse a set of directories and
+find files stored in them. It then either executes the file, or uses mailcap to
 run an associated program.
 
-
-Installation
-============
-
-To run this you should install Python (duh) and you should install and configure
-mailcap.  You should also edit the DMENU constant at the top of the "dmenu-do"
-source file to change how dmenu is called and control font, colors, etc.  You
-should also edit the FOLDERS constant and put in your own set of folders to
-search.
-
-Usage
-=====
-
-Once you run dmenu-do, you will get a list of all executables from your PATH,
-and the list of FOLDERS.  If you hit ENTER on an executable (e.g. "firefox" or
-"emacs"), it will just execute.  If you hit ENTER on a directory, dmenu will
-display the items (files and folders) within that directory.  If you hit ENTER
-on a directory again, items in that directory will show, etc.  If you hit ENTER
-on a file that is not an executable, dmenu-do will call mailcap's "see" on the
-file, and whatever program you have configure to run it will be launched.
-
-TODO
+Wiki
 ====
-
-Sort items in MRU order.
-
+Please, see the [wiki page](/oneself/dmenu-do/wiki/Introduction) for more info about installation an usage.
 
 License
 =======
