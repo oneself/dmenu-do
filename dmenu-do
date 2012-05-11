@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Copyright (C) 2012 Eyal Erez
-
+#
 # This program is free software; you can redistribute it and/or modify it under the terms of the GNU
 # General Public License as published by the Free Software Foundation; either version 2 of the
 # License, or (at your option) any later version.
@@ -19,10 +19,11 @@ import os
 from subprocess import Popen, PIPE
 from optparse import OptionParser
 from collections import defaultdict
+import logging as log
 
-#############
-# CONSTANTS #
-#############
+##########
+# CONSTS #
+##########
 
 ## dmenu command
 DMENU = ['dmenu', '-i', '-b', '-fn', 'Consolas-10:bold', '-nf', 'grey', '-sb', '#444', '-sf', '#EE9A00']
@@ -35,9 +36,57 @@ SESSION = {'shutdown':  'sudo shutdown -h now',
            'suspend':   'sudo pm-suspend',
            'hibernate': 'sudo pm-hibernate'}
 ## File used to store command history info.  Commands are stored in order, most recently used first.
-HISTORY = os.path.join(os.environ['HOME'], ".dmenu-do.history")
+HISTORY_FILE = os.path.join(os.environ['HOME'], ".dmenu-do.history")
+## File used to read configuration
+CONFIG_FILE = os.path.join(os.environ['HOME'], ".dmenu-do.conf")
 
-class LRUDict(object):
+#########
+# UTILS #
+#########
+def execute(command,):
+  '''Execute command'''
+  log.debug('EXECUTE %s' % command)
+  os.popen(command + '&')
+
+def is_executable(path):
+  '''Is this path an executable file'''
+  return os.path.isfile(path) and os.access(path, os.X_OK)
+
+def is_directory(path):
+  '''Is this path a directory'''
+  return os.path.isdir(path)
+
+##########
+# CONFIG #
+##########
+class Config(object):
+
+  def __init__(self, filename):
+    self._filename = filename
+
+  def folders(self):
+    '''Get list of search folders'''
+    return FOLDERS
+
+  def session(self):
+    '''Get session commands'''
+    return SESSION
+
+  def executables(self):
+    '''Get list of executables based on $PATH'''
+    path = os.environ['PATH'].split(':')
+    proc = Popen(['lsx-suckless'] + path, stdout=PIPE)
+    lines = []
+    line = proc.stdout.readline()
+    while line:
+      lines.append(line.strip())
+      line = proc.stdout.readline()
+    return lines
+
+############
+# LRU DICT #
+############
+class _LRUDict(object):
   '''An OrderedDict allows a user to add key/value pairs, like a dict, but maintains the order of
   addition.  If an item is added more the once, it will move to the end of the list.  So, the order
   is LRU first.  (Note: this implementation is not thread-safe)
@@ -47,6 +96,10 @@ class LRUDict(object):
     '''Create an empty dict'''
     self._d = {}
     self._k = []
+
+  def __len__(self):
+    self._dedup()
+    return len(self._k)
 
   def __getitem__(self, key):
     '''Get value'''
@@ -61,6 +114,10 @@ class LRUDict(object):
     '''Remove item'''
     self._k.remove(key)
     del self._d[key]
+
+  def __contains__(self, key):
+    '''Contains key'''
+    return key in self._d
 
   def keys(self):
     '''Return list of keys in order of insertion'''
@@ -88,129 +145,136 @@ class LRUDict(object):
         ks.append(k)
     self._k = ks
 
-def execute(name, command):
-  '''Execute command'''
-  if VERBOSE: print '$', command
-  history_add(name, command)
-  os.popen(command + '&')
+  def __str__(self):
+    s = []
+    for k in self._k:
+      s.append('%s: %s' % (k, self._d[k]))
+    return '{%s}' % ', '.join(s)
 
-def executables():
-  '''Get list of executables based on $PATH'''
-  path = os.environ['PATH'].split(':')
-  proc = Popen(['lsx-suckless'] + path, stdout=PIPE)
-  lines = []
-  line = proc.stdout.readline()
-  while line:
-    lines.append(line.strip())
-    line = proc.stdout.readline()
-  return lines
+###########
+# HISTORY #
+###########
+class History(object):
 
-def history_add(name, command):
-  history = history_read()
-  history[name] = command
-  history_write(history)
+  TYPE_EXECUTABLE = "EXECUTABLE"
+  TYPE_FILE       = "FILE"
 
-def history_write(history):
-  if VERBOSE: print 'WRITE HISTORY'
-  with file(HISTORY, 'w+') as writer:
-    for (k, v) in history.items():
-      if k and v:
-        if VERBOSE: print '%s,%s\n' % (k, v)
-        writer.write('%s,%s\n' % (k, v))
-  print 'DONE'
+  def __init__(self, filename):
+    self._filename = filename
+    self._commands = _LRUDict()
+    try:
+      with file(self._filename, 'r') as reader:
+        for line in reader:
+          line = line.strip()
+          if line:
+            log.debug('READ HISTORY %s' % line)
+            name, command_type, command = line.split(',')
+            self._commands[name] = command_type, command
+    except IOError:
+      pass # file not found, this is fine, we'll just created it later.
 
-history = None
-def history_read():
-  global history
-  if history:
-    return history
-  if VERBOSE: print 'READ HISTORY'
-  history = LRUDict()
-  try:
-    with file(HISTORY, 'r') as reader:
-      for line in reader:
-        line = line.strip()
-        if line:
-          (k, v) = line.split(',')
-          if VERBOSE: print '%s,%s\n' % (k, v)
-          history[k] = v
-  except IOError:
-    pass # file not found, this is fine, we'll just created it later.
-  print 'DONE'
-  return history
+  def add_executable(self, command):
+    self._commands[command] = (self.TYPE_EXECUTABLE, command)
 
-def folders():
-  '''Get list of search folders'''
-  return FOLDERS
+  def add_file(self, name, path):
+    self._commands[name] = (self.TYPE_FILE, path)
 
-def session():
-  '''Get session commands'''
-  return SESSION
+  def execute(self, name):
+    command_type, command = self._commands[name]
+    if self.TYPE_EXECUTABLE == command_type:
+      execute(command)
+    elif self.TYPE_FILE == command_type:
+      execute('see "%s"' % command)
+    else:
+      raise ValueError('Unknown command type "%s"' % command_type)
+    # Pop to first place
+    self._commands[name] = command_type, command
 
-def is_executable(path):
-  '''Is this path an executable file'''
-  return os.path.isfile(path) and os.access(path, os.X_OK)
+  def keys(self):
+    return self._commands.keys()
 
-def is_directory(path):
-  '''Is this path a directory'''
-  return os.path.isdir(path)
+  def __contains__(self, key):
+    '''Contains key'''
+    return key in self._commands
 
+  def close(self):
+    log.debug('WRITING HISTORY %s' % self._filename)
+    with file(self._filename, 'w+') as writer:
+      for (name, (command_type, command)) in self._commands.items():
+        line = "%s,%s,%s\n" % (name, command_type, command)
+        log.debug(line)
+        writer.write(line)
+    log.debug('DONE WRITING HISTORY %s' % self._filename)
 
-def dmenu(command=''):
-  '''Run the dmenu command recursively'''
-  global current
-  items = []
-  # Figure out which items to display
-  if command:
-    # If current is empty, we are not walking a directory tree.  So, try and see if this is a
-    # session command or a path executable.
-    if not current:
-      if command in history_read().keys():
-        if VERBOSE: print 'HISTORY:', command
-        # This is a history command, so run it.
-        execute(command, history_read()[command])
-        return
-      if command in session().keys():
-        if VERBOSE: print 'SESSION:', command
-        # This is a session command, so run it.
-        execute(command, session()[command])
-        return
-      if command in executables():
-        if VERBOSE: print 'EXECUTABLE:', command
-        # This is an executable, so run it.
-        execute(command, command)
-        return
-    # Otherwise, we must be walking a path, so join our current path
-    path = os.path.join(current, command.replace('~', os.environ['HOME']))
-    if is_directory(path):
-        if VERBOSE: print 'DIRECTORY:', command
+#########
+# DMENU #
+#########
+class DMenu(object):
+
+  def __init__(self, config, history):
+    self._current = None
+    self._config = config
+    self._history = history
+
+  def run(self, command=''):
+    '''Run the dmenu command recursively'''
+    items = []
+    # Figure out which items to display
+    if command:
+      # If current is empty, we are not walking a directory tree.  So, try and see if this is a
+      # session command or a path executable.
+      if not self._current:
+        if command in self._history:
+          log.debug('HISTORY: %s' % command)
+          # This is a history command, so run it.
+          self._history.execute(command)
+          return
+        if command in self._config.session().keys():
+          log.debug('SESSION: %s' % command)
+          # This is a session command, so run it.
+          execute(self._config.session()[command])
+          return
+        if command in self._config.executables():
+          log.debug('EXECUTABLE: %s' % command)
+          self._history.add_executable(command)
+          # This is an executable, so run it.
+          execute(command)
+          return
+      # Otherwise, we must be walking a path, so join our current path
+      path = os.path.join(self._current, command.replace('~', os.environ['HOME']))
+      if is_directory(path):
+        log.debug('DIRECTORY: %s' % command)
         # Update current path
-        current = path
+        self._current = path
         # This is a directory, so we are going to list all child files and folders.
         items = os.listdir(path)
-    elif is_executable(command):
-      # This is a full path executable, so run it.
-      if VERBOSE: print 'EXECUTABLE:', command
-      execute(command, path)
-      return
+      elif is_executable(command):
+        # This is a full path executable, so run it.
+        log.debug('EXECUTABLE: %s' % command)
+        execute(command, path)
+        return
+      else:
+        # This is just a file, use mailcap and try to find the right program to run it.
+        log.debug('FILE: %s' % path)
+        self._history.add_file(command, path)
+        execute('see "%s"' % path)
+        return
     else:
-      # This is just a file, use mailcap and try to find the right program to run it.
-      if VERBOSE: print 'FILE:', path
-      execute(command, 'see "%s"' % path)
-      return
-  else:
-    # If no command was passed in, show everything
-    items = history_read().keys() + folders() + list(session().keys()) + sorted(executables())
-  # Open the dmenu command
-  proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
-  # Run dmenu with the items defined above
-  for item in items:
-    proc.stdin.write(item)
-    proc.stdin.write('\n')
-  command = proc.communicate()[0]
-  # If we got something back, run dmenu again
-  if command:
-    dmenu(command.strip())
+      # If no command was passed in, show everything
+      items = self._history.keys() + \
+              self._config.folders() + \
+              list(self._config.session().keys()) + \
+              sorted(self._config.executables())
+    # Open the dmenu command
+    proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
+    # Run dmenu with the items defined above
+    for item in items:
+      proc.stdin.write(item)
+      proc.stdin.write('\n')
+    command = proc.communicate()[0]
+    # If we got something back, run dmenu again
+    if command:
+      self.run(command.strip())
 
 ########
 # MAIN #
@@ -218,9 +282,13 @@ def dmenu(command=''):
 
 def main():
   '''main method'''
-  global current
-  current = ''
-  dmenu()
+  config = Config(CONFIG_FILE)
+  history = History(HISTORY_FILE)
+  try:
+    dmenu = DMenu(config, history)
+    dmenu.run()
+  finally:
+    history.close()
 
 if __name__ == '__main__':
   parser = OptionParser()
