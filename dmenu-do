@@ -18,6 +18,7 @@ import sys
 import os
 from subprocess import Popen, PIPE
 from optparse import OptionParser
+from ConfigParser import ConfigParser
 from collections import defaultdict
 import logging as log
 
@@ -25,20 +26,22 @@ import logging as log
 # CONSTS #
 ##########
 
-## dmenu command
-DMENU = ['dmenu', '-i', '-b', '-fn', 'Consolas-10:bold', '-nf', 'grey', '-sb', '#444', '-sf', '#EE9A00']
-## List of folders to search, NOTE: must use full path!
-FOLDERS = ['~', '/', '~/downloads', '~/notes', '/space', '~/documents']
-## List of session commands.  NOTE: You should add this to /etc/sudoers to avoid having to put in a
-## password every time.
-SESSION = {'shutdown':  'sudo shutdown -h now',
-           'reboot':    'sudo shutdown -r now',
-           'suspend':   'sudo pm-suspend',
-           'hibernate': 'sudo pm-hibernate'}
-## File used to store command history info.  Commands are stored in order, most recently used first.
-HISTORY_FILE = os.path.join(os.environ['HOME'], ".dmenu-do.history")
+def home(path):
+  return path.replace('~', os.environ['HOME'])
+
 ## File used to read configuration
-CONFIG_FILE = os.path.join(os.environ['HOME'], ".dmenu-do.conf")
+CONFIG_FILE  = home('~/.dmenu-do.conf')
+SEC_SESSION  = 'Session'
+SEC_LOGGING  = 'Logging'
+SEC_HISTORY  = 'History'
+SEC_BROWSE   = 'Browse'
+SEC_COMMANDS = 'Commands'
+OPT_FILE     = 'file'
+OPT_LEVEL    = 'level'
+OPT_DIRS     = 'dirs'
+OPT_DMENU    = 'dmenu'
+OPT_EXEC     = 'executables'
+
 
 #########
 # UTILS #
@@ -61,21 +64,24 @@ def is_directory(path):
 ##########
 class Config(object):
 
-  def __init__(self, filename):
-    self._filename = filename
+  def __init__(self, config_file):
+    self._config = ConfigParser()
+    self._config.read(config_file)
+    # Init logging
+    log.basicConfig(filename=home(self._config.get(SEC_LOGGING, OPT_FILE)),
+                    level=self._config.get(SEC_LOGGING, OPT_LEVEL))
+    # Get config values
+    self.session = dict(self._config.items(SEC_SESSION))
+    self.folders = [f.strip() for f in self._config.get(SEC_BROWSE, OPT_DIRS).split(',')]
+    self.history_file = home(self._config.get(SEC_HISTORY, OPT_FILE))
+    self.dmenu = [f.strip() for f in self._config.get(SEC_COMMANDS, OPT_DMENU).split(' ')]
+    self._exec = [f.strip() for f in self._config.get(SEC_COMMANDS, OPT_EXEC).split(' ')]
 
-  def folders(self):
-    '''Get list of search folders'''
-    return FOLDERS
-
-  def session(self):
-    '''Get session commands'''
-    return SESSION
-
+  @property
   def executables(self):
     '''Get list of executables based on $PATH'''
     path = os.environ['PATH'].split(':')
-    proc = Popen(['lsx-suckless'] + path, stdout=PIPE)
+    proc = Popen(self._exec + path, stdout=PIPE)
     lines = []
     line = proc.stdout.readline()
     while line:
@@ -198,12 +204,14 @@ class History(object):
     return key in self._commands
 
   def close(self):
+    log.debug('CLOSING')
     log.debug('WRITING HISTORY %s' % self._filename)
     with file(self._filename, 'w+') as writer:
       for (name, (command_type, command)) in self._commands.items():
-        line = "%s,%s,%s\n" % (name, command_type, command)
+        line = "%s,%s,%s" % (name, command_type, command)
         log.debug(line)
         writer.write(line)
+        writer.write('\n')
     log.debug('DONE WRITING HISTORY %s' % self._filename)
 
 #########
@@ -229,19 +237,19 @@ class DMenu(object):
           # This is a history command, so run it.
           self._history.execute(command)
           return
-        if command in self._config.session().keys():
+        if command in self._config.session.keys():
           log.debug('SESSION: %s' % command)
           # This is a session command, so run it.
-          execute(self._config.session()[command])
+          execute(self._config.session[command])
           return
-        if command in self._config.executables():
+        if command in self._config.executables:
           log.debug('EXECUTABLE: %s' % command)
           self._history.add_executable(command)
           # This is an executable, so run it.
           execute(command)
           return
       # Otherwise, we must be walking a path, so join our current path
-      path = os.path.join(self._current, command.replace('~', os.environ['HOME']))
+      path = os.path.join(self._current, home(command));
       if is_directory(path):
         log.debug('DIRECTORY: %s' % command)
         # Update current path
@@ -262,11 +270,11 @@ class DMenu(object):
     else:
       # If no command was passed in, show everything
       items = self._history.keys() + \
-              self._config.folders() + \
-              list(self._config.session().keys()) + \
-              sorted(self._config.executables())
+              self._config.folders + \
+              list(self._config.session.keys()) + \
+              sorted(self._config.executables)
     # Open the dmenu command
-    proc = Popen(DMENU, shell=False, stdout=PIPE, stdin=PIPE)
+    proc = Popen(self._config.dmenu, shell=False, stdout=PIPE, stdin=PIPE)
     # Run dmenu with the items defined above
     for item in items:
       proc.stdin.write(item)
@@ -280,10 +288,10 @@ class DMenu(object):
 # MAIN #
 ########
 
-def main():
+def main(config_file):
   '''main method'''
-  config = Config(CONFIG_FILE)
-  history = History(HISTORY_FILE)
+  config = Config(config_file)
+  history = History(config.history_file)
   try:
     dmenu = DMenu(config, history)
     dmenu.run()
@@ -292,11 +300,10 @@ def main():
 
 if __name__ == '__main__':
   parser = OptionParser()
-  parser.add_option("-v", "--verbose",
-                    action="store_true", dest="verbose", default=False,
-                    help="print out more information")
+  parser.add_option("-c", "--config", dest="config_file",
+                    help="Location of configuration file (defaults to %s" % CONFIG_FILE,
+                    metavar="FILE", default=CONFIG_FILE)
 
   (options, args) = parser.parse_args()
 
-  VERBOSE = options.verbose
-  main()
+  main(options.config_file)
