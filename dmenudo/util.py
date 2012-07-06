@@ -14,14 +14,17 @@
 
 import logging as log
 import os
+import subprocess
 
 def home(path):
   return path.replace('~', os.environ['HOME'])
 
-def execute(command,):
+def execute(command):
   '''Execute command'''
   log.debug('EXECUTE %s' % command)
-  os.popen(command + '&')
+  #os.spawnl(os.P_NOWAIT, command)
+  output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+  log.debug(output)
 
 def is_executable(path):
   '''Is this path an executable file'''

@@ -24,7 +24,7 @@ CONFIG = {
     OPT_EXEC: 'lsx-suckless' }
   }
 
-class TestConfig(TestCase):
+class ConfigTest(TestCase):
 
   @patch_config_parser(CONFIG)
   def test_init(self):

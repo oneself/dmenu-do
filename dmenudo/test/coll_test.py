@@ -5,7 +5,7 @@ from dmenudo.coll import LRUDict
 from unittest import TestCase
 
 
-class TestLRUDict(TestCase):
+class LRUDictTest(TestCase):
 
   def setUp(self):
     self.lru = LRUDict()
