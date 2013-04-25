@@ -21,7 +21,7 @@ CONFIG = {
     OPT_FILE: '' },
   SEC_COMMANDS: {
     OPT_DMENU: '',
-    OPT_EXEC: 'lsx-suckless' }
+    OPT_EXEC: 'dmenu_path' }
   }
 
 class ConfigTest(TestCase):
