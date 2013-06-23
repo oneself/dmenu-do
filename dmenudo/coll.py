@@ -20,10 +20,11 @@ class LRUDict(object):
   is LRU first.  (Note: this implementation is not thread-safe)
   '''
 
-  def __init__(self):
+  def __init__(self, maxsize=1024):
     '''Create an empty dict'''
     self._d = {}
     self._k = []
+    self._maxsize = maxsize
 
   def __len__(self):
     self._dedup()
@@ -37,6 +38,9 @@ class LRUDict(object):
     '''Set value'''
     self._k.append(key)
     self._d[key] = value
+    # Overflow, remove oldest
+    if len(self._k) > self._maxsize:
+      del self[self._k[0]]
 
   def __delitem__(self, key):
     '''Remove item'''

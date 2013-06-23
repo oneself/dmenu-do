@@ -28,3 +28,7 @@ cover
 
 # Rope
 .ropeproject
+
+# Temp
+.#*
+*~

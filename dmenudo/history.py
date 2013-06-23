@@ -22,8 +22,9 @@ class History(object):
   TYPE_EXECUTABLE = "EXECUTABLE"
   TYPE_FILE       = "FILE"
 
-  def __init__(self, filename):
+  def __init__(self, filename, see):
     self._filename = filename
+    self._see = see
     self._commands = LRUDict()
     try:
       with file(self._filename, 'r') as reader:
@@ -47,7 +48,7 @@ class History(object):
     if self.TYPE_EXECUTABLE == command_type:
       execute(command)
     elif self.TYPE_FILE == command_type:
-      execute('see "%s"' % command)
+      execute('%s "%s"' % (self._see, command))
     else:
       raise ValueError('Unknown command type "%s"' % command_type)
     # Pop to first place

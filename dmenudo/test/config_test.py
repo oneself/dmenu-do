@@ -1,5 +1,5 @@
 
-from util import patch_config_parser
+from testutil import patch_config_parser
 
 from dmenudo.const import *
 from dmenudo.config import Config
@@ -8,6 +8,7 @@ from mock import patch
 import ConfigParser
 
 from unittest import TestCase
+from nose.tools import ok_
 
 
 CONFIG = {
@@ -29,9 +30,9 @@ class ConfigTest(TestCase):
   @patch_config_parser(CONFIG)
   def test_init(self):
     config = Config(None)
-    self.assertTrue(not config is None)
+    ok_(not config is None)
 
   @patch_config_parser(CONFIG)
   def test_executables(self):
     config = Config(None)
-    self.assertTrue('ls' in config.executables)
+    ok_('ls' in config.executables)
